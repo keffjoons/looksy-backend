@@ -1,14 +1,3 @@
-const sharp = require('sharp');
-
-// Reduce sharp memory footprint globally
-try {
-  sharp.concurrency(Math.max(1, Number(process.env.SHARP_CONCURRENCY) || 2));
-  sharp.cache({ files: 0, memory: Math.max(16, Number(process.env.SHARP_CACHE_MB) || 64), items: 256 });
-  if (typeof sharp.limitInputPixels === 'function') {
-    sharp.limitInputPixels(Number(process.env.SHARP_MAX_INPUT_PIXELS) || 40_000_000);
-  }
-} catch {}
-
 /**
  * Generate overlayed image using Gemini AI
  * @param {Object} options

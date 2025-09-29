@@ -53,6 +53,7 @@ function validateExtension(req, res, next) {
 // Data URI validation helpers
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/avif']);
 const MAX_DATAURI_BYTES = 8 * 1024 * 1024; // 8MB per image
+const MAX_REQUEST_SIZE = 25 * 1024 * 1024; // 25MB total request size
 
 function parseDataUri(dataUri) {
   if (!dataUri || typeof dataUri !== 'string') {
@@ -83,6 +84,15 @@ function parseDataUri(dataUri) {
 // Main try-on endpoint
 app.post('/api/extension/tryon', validateExtension, async (req, res) => {
   try {
+    // Quick request size check
+    const requestSizeEstimate = JSON.stringify(req.body).length;
+    if (requestSizeEstimate > MAX_REQUEST_SIZE) {
+      return res.status(413).json({
+        error: 'Request too large',
+        code: 'REQUEST_TOO_LARGE'
+      });
+    }
+
     const {
       userImage,
       overlayData,
