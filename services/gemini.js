@@ -56,11 +56,11 @@ async function generateOverlayedImage({
     console.log('Gemini response:', text);
 
     // TODO: Implement actual image generation/compositing
-    // This is a placeholder response
-    const placeholderImage = generatePlaceholderImage();
+    // For now, return the user image to test the flow
+    const userImageDataUrl = `data:${userInlinePart.inlineData.mimeType};base64,${userInlinePart.inlineData.data}`;
 
     return {
-      dataUrl: placeholderImage,
+      dataUrl: userImageDataUrl,
       usage: {
         model: modelName,
         promptTokens: estimateTokens(prompt),
