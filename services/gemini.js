@@ -190,6 +190,142 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
+/**
+ * Generate studio image transformation using Gemini AI
+ * Transforms user photo into professional studio model pose
+ * @param {Object} userInlinePart - User image as {inlineData: {mimeType, data}}
+ * @param {string} targetPose - Desired pose (e.g., 'neutral', 'standing')
+ * @param {string} background - Desired background (e.g., 'neutral', 'white')
+ * @returns {Promise<{dataUrl: string}>}
+ */
+async function generateStudioImage({
+  userInlinePart,
+  targetPose = 'neutral',
+  background = 'neutral'
+}) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('Missing GEMINI_API_KEY');
+
+  console.log(`🎨 Generating studio image with ${targetPose} pose and ${background} background`);
+
+  // Studio transformation prompt
+  const sysPrompt = [
+    'You are an expert fashion photographer AI. Transform the person in this image into a full-body fashion model photo suitable for an e-commerce website.',
+    'REQUIREMENTS:',
+    '- Background: Clean, neutral studio backdrop (light gray, #f0f0f0)',
+    '- Pose: Neutral, professional model expression with relaxed standing pose',
+    '- Lighting: Professional studio lighting with soft shadows',
+    '- Person: Preserve identity, unique features, and body type exactly',
+    '- Quality: High-resolution, photorealistic output',
+    '- Frame: Full body shot, centered, with proper headroom and footroom',
+    '- Expression: Natural, confident, professional (not smiling)',
+    'OUTPUT: Generate a high-resolution 2K (2048px minimum) professional studio photo. Return only the final image as data:image/png;base64,<BASE64> format.'
+  ].join(' ');
+
+  // Use the image generation model
+  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
+  console.log(`🤖 Using model for studio generation: ${model}`);
+
+  // Build parts for Gemini API
+  const parts = [
+    { text: sysPrompt },
+    userInlinePart
+  ];
+
+  // Make API request with retry logic
+  let lastError;
+  const maxRetries = 3;
+  const baseDelay = 1000;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const body = {
+        contents: [{ role: 'user', parts }],
+        generationConfig: {
+          temperature: 0.4,
+          topP: 0.8,
+          topK: 40
+        }
+      };
+
+      if (attempt > 1) {
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.log(`⏳ Studio generation attempt ${attempt}/${maxRetries} after ${delay}ms delay`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
+      const response = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      }, 45000); // 45 second timeout for studio generation
+
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        const isRetryableError = response.status === 500 || response.status === 502 || response.status === 503;
+        console.error(`❌ Studio generation error (attempt ${attempt}/${maxRetries}): ${response.status} ${responseText}`);
+
+        if (isRetryableError && attempt < maxRetries) {
+          lastError = new Error(`Gemini API error: ${response.status} ${responseText}`);
+          continue;
+        }
+
+        throw new Error(`Gemini API error: ${response.status} ${responseText}`);
+      }
+
+      // Success! Parse response
+      console.log(`✅ Studio generation succeeded on attempt ${attempt}/${maxRetries}`);
+      const json = safeJson(responseText);
+      const partsResp = json?.candidates?.[0]?.content?.parts || [];
+
+      // Extract image data from response
+      for (const part of partsResp) {
+        const inline = part?.inline_data || part?.inlineData;
+        const data = inline?.data;
+        const mimeType = inline?.mime_type || inline?.mimeType;
+
+        if (data && (mimeType ? String(mimeType).includes('image/') : true)) {
+          return {
+            dataUrl: `data:image/png;base64,${data}`
+          };
+        }
+      }
+
+      // Check for text-embedded base64 images
+      for (const part of partsResp) {
+        const text = part?.text;
+        if (!text) continue;
+
+        const idx = text.indexOf('data:image/png;base64,');
+        if (idx !== -1) {
+          const candidate = text.slice(idx).trim();
+          const clean = candidate.replace(/[`'"\)\]]+$/, '');
+          return {
+            dataUrl: clean
+          };
+        }
+      }
+
+      // If we get here, no image was found in response
+      const block = json?.promptFeedback?.blockReason || '';
+      throw new Error(block ? `Gemini returned no studio image (blockReason: ${block})` : 'Gemini returned no studio image');
+
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxRetries) {
+        console.error(`❌ All ${maxRetries} studio generation attempts failed:`, error.message);
+        throw error;
+      }
+      console.warn(`⚠️  Studio generation attempt ${attempt}/${maxRetries} failed:`, error.message);
+    }
+  }
+
+  throw lastError || new Error('Failed to generate studio image');
+}
+
 module.exports = {
-  generateOverlayedImage
+  generateOverlayedImage,
+  generateStudioImage
 };

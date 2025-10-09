@@ -4,7 +4,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs').promises;
-const { generateOverlayedImage } = require('./services/gemini');
+const { generateOverlayedImage, generateStudioImage } = require('./services/gemini');
 require('dotenv').config();
 
 const app = express();
@@ -140,9 +140,25 @@ app.post('/api/studio/generate', upload.single('image'), async (req, res) => {
     const filename = `${studioId}.jpg`;
     const filepath = path.join(uploadsDir, filename);
 
-    // For now, save the uploaded image directly
-    // TODO: When Gemini 2.5 Flash Image is available, transform to studio image
-    await fs.writeFile(filepath, req.file.buffer);
+    // Transform with Gemini AI
+    const userInlinePart = {
+      inlineData: {
+        mimeType: req.file.mimetype,
+        data: req.file.buffer.toString('base64')
+      }
+    };
+
+    console.log(`🎨 Transforming to studio image: pose=${target_pose}, bg=${background}`);
+    const result = await generateStudioImage({
+      userInlinePart,
+      targetPose: target_pose,
+      background: background
+    });
+
+    // Save the transformed image
+    const base64Data = result.dataUrl.replace(/^data:image\/\w+;base64,/, '');
+    await fs.writeFile(filepath, Buffer.from(base64Data, 'base64'));
+    console.log(`✅ Studio image saved: ${filename}`);
 
     // Return success response
     const cdnUrl = `${req.protocol}://${req.get('host')}/uploads/${filename}`;
